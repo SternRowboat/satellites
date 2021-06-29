@@ -11,47 +11,65 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type Data struct {
-	ID   int
-	data []packet
+type Database struct {
+	data []SatelliteConnection
 }
 type SatelliteConnection struct {
-	name    string
-	address string
-	port    int
+	name     string
+	address  string
+	port     int
+	data     data
+	commChan chan data
+}
+type data struct {
+	packets []Packet
 }
 
-type packet struct {
-	unixTimestamp int64
+type Packet struct {
+	UnixTimestamp int64
 	telemetryID   uint16
 	value         float32
 }
 
 func main() {
 	log.Print("Hello log")
+	log.SetLevel(log.DebugLevel)
 
-	sat1 := SatelliteConnection{"StringSatellite", "localhost", 8000}
+	sat1 := SatelliteConnection{"StringSatellite", "localhost", 8000, data{}, make(chan data)}
 	go connectToSatellite(sat1)
 
-	sat2 := SatelliteConnection{"BinarySatellite", "localhost", 8001}
-	connectToSatellite(sat2)
+	sat2 := SatelliteConnection{"BinarySatellite", "localhost", 8001, data{}, make(chan data)}
+	go connectToSatellite(sat2)
+	db := Database{}
+	db.data = append(db.data, sat1)
+	db.data = append(db.data, sat2)
+	Chart(db)
+	// for {
+	// 	select {
+	// 	case boop := <-sat1.commChan:
+	// 		log.Debug("Booped", boop)
+
+	// 	case boop := <-sat2.commChan:
+	// 		log.Debug("Booped", boop)
+	// 	}
+	// }
 }
 
 func handleErr(e error) {
 	log.Error(e)
 }
 
-func (p *packet) proccessString(s string) {
+func (p *Packet) proccessString(s string) {
 	if utf8.ValidString(s) {
 		s = strings.Trim(s, "[]")
 		values := strings.Split(s, ":")
 
-		unixTimestamp, err := strconv.ParseInt(values[0], 10, 64)
+		UnixTimestamp, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil {
 			handleErr(err)
 			return
 		}
-		p.unixTimestamp = unixTimestamp
+		p.UnixTimestamp = UnixTimestamp
 
 		telIDSigned, err := strconv.ParseInt(values[1], 10, 16)
 		if err != nil {
@@ -66,23 +84,23 @@ func (p *packet) proccessString(s string) {
 			return
 		}
 		p.value = float32(valueFloat64)
-		// println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
+		// println(time.Unix(p.UnixTimestamp, 0).String(), p.telemetryID, p.value)
 	} else {
-		log.Info("Not valid utf-8")
+		log.Debug("Not valid utf-8")
 	}
 }
 
 func connectToSatellite(s SatelliteConnection) {
 	socketAddress := s.address + ":" + strconv.Itoa(s.port)
-	log.Info("Attempting to contact ", socketAddress)
+	log.Debug("Attempting to contact ", socketAddress)
 
 	conn, err := net.Dial("tcp", socketAddress)
 	if err != nil {
 		log.Error(err)
 		return
 	}
+
 	defer conn.Close()
-	dataStore := Data{ID: 2}
 	if s.name == "StringSatellite" {
 		for {
 			message, err := bufio.NewReader(conn).ReadString(']')
@@ -90,25 +108,28 @@ func connectToSatellite(s SatelliteConnection) {
 				handleErr(err)
 				return
 			}
-			var p packet
+			var p Packet
 			p.proccessString(message)
-			dataStore.data = append(dataStore.data, p)
-			log.Info(dataStore.data)
+			s.data.packets = append(s.data.packets, p)
+			// log.Debug(s.data.packets)
+			s.commChan <- s.data
+			// Channel <- (dataStore.packets)
 		}
 	} else if s.name == "BinarySatellite" {
 		for {
 			buff := bufio.NewReader(conn)
-			var p packet
+			var p Packet
 			p.decodeBinary(buff)
-			dataStore.data = append(dataStore.data, p)
-			log.Info(dataStore.data)
+			s.data.packets = append(s.data.packets, p)
+			// log.Debug(s.data.packets)
+			s.commChan <- s.data
 		}
 	}
 }
 
-func (p *packet) decodeBinary(buff *bufio.Reader) {
+func (p *Packet) decodeBinary(buff *bufio.Reader) {
 	header := make([]byte, 4)
-	fields := []interface{}{header, &p.unixTimestamp, &p.telemetryID, &p.value}
+	fields := []interface{}{header, &p.UnixTimestamp, &p.telemetryID, &p.value}
 	for _, field := range fields {
 		err := binary.Read(buff, binary.LittleEndian, field)
 		if err != nil {
@@ -116,31 +137,4 @@ func (p *packet) decodeBinary(buff *bufio.Reader) {
 			return
 		}
 	}
-	// println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
 }
-
-// // func proccessBinary(bytes []byte) {
-// 	// print(len(bytes))
-// 	// for _, byte := range binaryBytes {
-// 	// 	print(byte)
-// 	// }
-// 	var p packet
-// 	header := bytes[0:4]
-// 	unixTimestamp := bytes[4:12]
-// 	// log.Info(unixTimestamp)
-// 	telemetryID := bytes[12:14]
-// 	value := bytes[14:18]
-// 	println(header, unixTimestamp, telemetryID, value)
-
-// 	unixTimestampUint := binary.LittleEndian.Uint64(unixTimestamp)
-// 	p.unixTimestamp = int64(unixTimestampUint)
-
-// 	p.telemetryID = binary.LittleEndian.Uint16(telemetryID)
-
-// 	// valueUint32 := binary.LittleEndian.Uint32(value)
-
-// 	// p.value = (valueFloat32)
-// 	println(binary.LittleEndian.Uint16(header), p.unixTimestamp, time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
-
-// 	println()
-// }
