@@ -108,13 +108,13 @@ func connectToSatellite(s SatelliteConnection) {
 
 func (p *packet) decodeBinary(buff *bufio.Reader) {
 	header := make([]byte, 4)
-	err := binary.Read(buff, binary.LittleEndian, header)
-	err = binary.Read(buff, binary.LittleEndian, &p.unixTimestamp)
-	err = binary.Read(buff, binary.LittleEndian, &p.telemetryID)
-	err = binary.Read(buff, binary.LittleEndian, &p.value)
-	if err != nil {
-		handleErr(err)
-		return
+	fields := []interface{}{header, &p.unixTimestamp, &p.telemetryID, &p.value}
+	for _, field := range fields {
+		err := binary.Read(buff, binary.LittleEndian, field)
+		if err != nil {
+			handleErr(err)
+			return
+		}
 	}
 	// println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
 }
