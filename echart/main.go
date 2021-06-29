@@ -1,4 +1,4 @@
-package main
+package chart
 
 import (
 	"math/rand"
@@ -37,7 +37,7 @@ func httpserver(w http.ResponseWriter, _ *http.Request) {
 	line.Render(w)
 }
 
-func main() {
+func chart() {
 	http.HandleFunc("/", httpserver)
 	http.ListenAndServe(":8081", nil)
 }

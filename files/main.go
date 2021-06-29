@@ -6,12 +6,15 @@ import (
 	"net"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	log "github.com/sirupsen/logrus"
 )
 
+type Data struct {
+	ID   int
+	data []packet
+}
 type SatelliteConnection struct {
 	name    string
 	address string
@@ -27,73 +30,21 @@ type packet struct {
 func main() {
 	log.Print("Hello log")
 
-	sat1 := SatelliteConnection{"BinarySatellite", "localhost", 8001}
-	go tcpExampleBinary(sat1)
+	sat1 := SatelliteConnection{"StringSatellite", "localhost", 8000}
+	go connectToSatellite(sat1)
 
-	sat2 := SatelliteConnection{"StringSatellite", "localhost", 8000}
-	tcpExampleString(sat2)
-
+	sat2 := SatelliteConnection{"BinarySatellite", "localhost", 8001}
+	connectToSatellite(sat2)
 }
 
 func handleErr(e error) {
 	log.Error(e)
 }
 
-func tcpExampleString(s SatelliteConnection) {
-	socketAddress := s.address + ":" + strconv.Itoa(s.port)
-	log.Info("Attempting to contact ", socketAddress)
-	c, err := net.Dial("tcp", socketAddress)
-	if err != nil {
-		handleErr(err)
-		return
-	}
-	defer c.Close()
-
-	for {
-		message, err := bufio.NewReader(c).ReadString(']')
-		if err != nil {
-			handleErr(err)
-			return
-		}
-		proccessString(message)
-	}
-}
-
-func tcpExampleBinary(s SatelliteConnection) {
-	socketAddress := s.address + ":" + strconv.Itoa(s.port)
-	log.Info("Attempting to contact ", socketAddress)
-
-	conn, err := net.Dial("tcp", socketAddress)
-	if err != nil {
-		log.Error(err)
-		return
-	}
-	defer conn.Close()
-
-	for {
-		buff := bufio.NewReader(conn)
-
-		var p packet
-		header := make([]byte, 4)
-		err := binary.Read(buff, binary.LittleEndian, header)
-		err = binary.Read(buff, binary.LittleEndian, &p.unixTimestamp)
-		err = binary.Read(buff, binary.LittleEndian, &p.telemetryID)
-		err = binary.Read(buff, binary.LittleEndian, &p.value)
-		println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
-
-		if err != nil {
-			log.Error(err)
-			return
-		}
-
-	}
-}
-
-func proccessString(s string) {
+func (p *packet) proccessString(s string) {
 	if utf8.ValidString(s) {
 		s = strings.Trim(s, "[]")
 		values := strings.Split(s, ":")
-		var p packet
 
 		unixTimestamp, err := strconv.ParseInt(values[0], 10, 64)
 		if err != nil {
@@ -115,13 +66,60 @@ func proccessString(s string) {
 			return
 		}
 		p.value = float32(valueFloat64)
-		println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
+		// println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
 	} else {
 		log.Info("Not valid utf-8")
 	}
 }
 
-// func proccessBinary(bytes []byte) {
+func connectToSatellite(s SatelliteConnection) {
+	socketAddress := s.address + ":" + strconv.Itoa(s.port)
+	log.Info("Attempting to contact ", socketAddress)
+
+	conn, err := net.Dial("tcp", socketAddress)
+	if err != nil {
+		log.Error(err)
+		return
+	}
+	defer conn.Close()
+	dataStore := Data{ID: 2}
+	if s.name == "StringSatellite" {
+		for {
+			message, err := bufio.NewReader(conn).ReadString(']')
+			if err != nil {
+				handleErr(err)
+				return
+			}
+			var p packet
+			p.proccessString(message)
+			dataStore.data = append(dataStore.data, p)
+			log.Info(dataStore.data)
+		}
+	} else if s.name == "BinarySatellite" {
+		for {
+			buff := bufio.NewReader(conn)
+			var p packet
+			p.decodeBinary(buff)
+			dataStore.data = append(dataStore.data, p)
+			log.Info(dataStore.data)
+		}
+	}
+}
+
+func (p *packet) decodeBinary(buff *bufio.Reader) {
+	header := make([]byte, 4)
+	err := binary.Read(buff, binary.LittleEndian, header)
+	err = binary.Read(buff, binary.LittleEndian, &p.unixTimestamp)
+	err = binary.Read(buff, binary.LittleEndian, &p.telemetryID)
+	err = binary.Read(buff, binary.LittleEndian, &p.value)
+	if err != nil {
+		handleErr(err)
+		return
+	}
+	// println(time.Unix(p.unixTimestamp, 0).String(), p.telemetryID, p.value)
+}
+
+// // func proccessBinary(bytes []byte) {
 // 	// print(len(bytes))
 // 	// for _, byte := range binaryBytes {
 // 	// 	print(byte)
