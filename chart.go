@@ -55,11 +55,11 @@ func (d Database) httpserver(w http.ResponseWriter, _ *http.Request) {
 }
 
 func parseTime(t int64) string {
-	return time.Unix(t, 0).Local().Format("08:00:07")
+	return time.Unix(t, 0).Format("03:04:05")
 }
 
 func Chart(d Database) {
 	http.HandleFunc("/", d.httpserver)
-	http.ListenAndServe(":8081", nil)
 	log.Info("Ready to serve, go to http://localhost:8081/")
+	http.ListenAndServe(":8081", nil)
 }
